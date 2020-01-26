@@ -1,0 +1,8 @@
+admin/*
+**.pyc
+notebooks/.ipynb_checkpoints/
+__pycache__/
+.vscode/
+.ipynb_checkpoints/
+.pdf
+save/
