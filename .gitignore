@@ -4,5 +4,5 @@ notebooks/.ipynb_checkpoints/
 __pycache__/
 .vscode/
 .ipynb_checkpoints/
-.pdf
+*.pdf
 save/
