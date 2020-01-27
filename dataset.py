@@ -100,8 +100,7 @@ def run(timestep):
         for line in data_lines:
             onehot = np.zeros((max_text_len, len(dictionary) + 1))
             mask = np.zeros(max_text_len)
-
-            mask[:max_text_len] = 1
+            mask[:len(line)] = 1
 
             for i in range(len(line)):
                 ch = line[i]
