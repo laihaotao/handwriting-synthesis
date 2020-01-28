@@ -5,11 +5,12 @@ import torch
 # reference: https://en.wikipedia.org/wiki/Maximum_likelihood_estimation
 #            https://blog.csdn.net/saltriver/article/details/53364037
 
-def log_likelihood(eos_hat, weights, mu1, mu2, sigma1, sigma2, rho, y, masks):
-    eos = y.narrow(-1, 0, 1)  # end of stroke
-    x1 = y.narrow(-1, 1, 1)   # coordinate point 1
-    x2 = y.narrow(-1, 2, 1)   # coordinate point 2
-    eps = np.finfo(float).eps
+def log_likelihood(y_pred, y_true, mask):
+    eos_pred, weights, mu1, mu2, sigma1, sigma2, rho = y_pred
+    eos_true = y_true.narrow(-1, 0, 1)  # end of stroke
+    x1 = y_true.narrow(-1, 1, 1)   # coordinate point 1
+    x2 = y_true.narrow(-1, 2, 1)   # coordinate point 2
+    eps = np.finfo(float).eps      # a tiny flaot number
 
     # formula (23) ~ (26) from the paper
     z = (
@@ -23,8 +24,7 @@ def log_likelihood(eos_hat, weights, mu1, mu2, sigma1, sigma2, rho, y, masks):
     pos_ewl = ((weights * n).sum(dim=-1) + eps).log()
 
     eos_ewl = (
-        eos_hat * (eos + eps) + (1 - eos_hat) * (1 - eos + eps)
+        eos_pred * (eos_true + eps) + (1 - eos_pred) * (1 - eos_true + eps)
     ).log().squeeze()
-
-    loss = (torch.sum(pos_ewl * masks) + torch.sum(eos_ewl * masks)) / torch.sum(masks)
+    loss = (torch.sum(pos_ewl * mask) + torch.sum(eos_ewl * mask)) / torch.sum(mask)
     return -1 * loss

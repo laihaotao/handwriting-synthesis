@@ -6,14 +6,13 @@ import matplotlib.pyplot as plt
 plt.switch_backend('agg')
 
 import torch
-from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.utils.data
+from torch.utils.data import DataLoader
 
 from model import HandwritingPrediction, HandwritingSynthesis
-from dataset import get_dataloader
+from dataset import HandwritingDataset
 from loss import log_likelihood
 from utils import save_checkpoint
 
@@ -35,132 +34,100 @@ def save_loss_figure(t_loss, v_loss):
              linestyle='solid')
     f1.savefig(args.task + "_loss_curves", bbox_inches='tight')
 
+
+def forward(model, data, optimizer):
+    # strks and its mask: (batch, timestep + 1, strk_dim)
+    # sents and its mask: (batch, sent_len)
+    # sent onethos shape: (batch, sent_len, sent_dim)
+    # where strk_dim = 3, sent_len = 65, sent_dim = 60
+    strks, strks_m, sents, sents_m, onehots = data
+
+    # focus window weight on first text char
+    w_prev = onehots.narrow(1, 0, 1)
+
+    # e.g. x2 will be the "target" for x1 when compute the loss
+    x = strks.narrow(1, 0, args.timesteps)
+    strks_m = strks_m.narrow(1, 0, args.timesteps)
+    target = strks.narrow(1, 1, args.timesteps)
+
+    if optimizer:
+        optimizer.zero_grad()
+    output = model(x, strks_m, sents, sents_m, onehots, w_prev)
+    loss = log_likelihood(output, target, strks_m)
+    return loss
+
+
+
+
 # parameter handling
 parser = argparse.ArgumentParser()
-parser.add_argument('--task',
-                    type=str,
-                    default='write_prediction',
-                    help='"write_prediction" or "synthesis"')
-parser.add_argument('--hidden_size',
-                    type=int,
-                    default=400,
-                    help='size of LSTM hidden state')
-parser.add_argument('--mix_components',
-                    type=int,
-                    default=20,
-                    help='number of gaussian mixture components')
-parser.add_argument('--feature_dim',
-                    type=int,
-                    default=3,
-                    help='feature dimension for each timstep')
-parser.add_argument('--batch_size',
-                    type=int,
-                    default=50,
-                    help='minibatch size')
-parser.add_argument('--timesteps',
-                    type=int,
-                    default=800,
-                    help='LSTM sequence length')
-parser.add_argument('--num_epochs',
-                    type=int,
-                    default=50,
-                    help='number of epochs')
-parser.add_argument('--model_dir',
-                    type=str,
-                    default='save',
-                    help='directory to save model to')
-parser.add_argument('--learning_rate',
-                    type=float,
-                    default=8E-4,
-                    help='learning rate')
-parser.add_argument('--decay_rate',
-                    type=float,
-                    default=0.99,
-                    help='lr decay rate for adam optimizer per epoch')
-parser.add_argument('--K',
-                    type=int,
-                    default=10,
-                    help='number of attention clusters on text input')
+parser.add_argument('--task', type=str, default='write_prediction')
+parser.add_argument('--hidden_size', type=int,default=400)
+parser.add_argument('--mix_components', type=int, default=20)
+parser.add_argument('--feature_dim', type=int,default=3)
+parser.add_argument('--batch_size', type=int, default=50)
+parser.add_argument('--timesteps', type=int, default=800)
+parser.add_argument('--num_epochs', type=int, default=50)
+parser.add_argument('--model_dir', type=str, default='save')
+parser.add_argument('--learning_rate', type=float, default=8E-4)
+parser.add_argument('--decay_rate', type=float, default=0.99)
+parser.add_argument('--K', type=int, default=10)
 args = parser.parse_args()
 
-# strokes, mask, onehot, text_len
-train_loader, test_loader = get_dataloader(cuda, args.batch_size)
-train_ds_size = len(train_loader.dataset)
-test_ds_size  = len(test_loader.dataset)
+# strokes, strokes_mask, sentences, sentences_mask, onehots
+t_dataset = HandwritingDataset(is_training=True)
+v_dataset = HandwritingDataset(is_training=False)
+t_loader = DataLoader(t_dataset, batch_size=args.batch_size,
+                      shuffle=True, drop_last=True)
+v_loader = DataLoader(v_dataset, batch_size=args.batch_size,
+                      shuffle=True, drop_last=True)
+
+train_ds_size = len(t_dataset)
 samples_per_batch = train_ds_size // args.batch_size
 
-def train_conditional_model():
-    # number of char in the diactionary
-    feature_dim = (train_loader.dataset[0][0].size()[1],
-                   train_loader.dataset[0][2].size()[1])
 
+
+
+def train_conditional_model():
+    feature_dim = (3, 60)
     model = HandwritingSynthesis(device, args.batch_size, args.hidden_size,
                                  args.K, args.mix_components, feature_dim)
     model.to(device)
-
+    model.float()
     t_loss, v_loss = [], []
-    best_validation_loss = 1E10
     optimizer = optim.Adam([{'params':model.parameters()}],
                            lr=args.learning_rate)
 
-    # training
+
     start_time = time.time()
     for epoch in range(args.num_epochs):
-        train_loss = 0
-        for bat_idx, bat_data in enumerate(train_loader):
-            # input data shape:
-            #   strokes:   (batch size, timestep + 1, 3)
-            #   masks:     (batch size, timestep)
-            #   onehots:   (batch size, len(text line), len(char list))
-            #   text_lens: (batch size, 1)
-            strokes, masks, onehots, text_lens = bat_data
+        ct_loss = 0
+        # training
+        for bat_idx, bat_data in enumerate(t_loader):
+            # forward pass
+            loss = forward(model, bat_data, optimizer)
+            ct_loss += loss.item()
 
-            # focus window weight on first text char
-            w_prev = onehots.narrow(1, 0, 1).squeeze()
-
-            # gather training batch
-            x = strokes.narrow(1, 0, args.timesteps)
-            masks = masks.narrow(1, 0, args.timesteps)
-
-            # feed forward
-            optimizer.zero_grad()
-            outputs = model(x.to(device), onehots.to(device), masks.to(device),
-                            text_lens.to(device), w_prev.to(device))
-            eos, weights, mu1, mu2, sigma1, sigma2, rho = outputs
-            y = strokes.narrow(1, 1, args.timesteps)
-            loss = log_likelihood(eos, weights, mu1, mu2,
-                                  sigma1, sigma2, rho, y, masks)
-            train_loss += loss.item()
-
-            # back propagation
+            # backprogation
             loss.backward()
             optimizer.step()
 
             if bat_idx % 10 == 0:
                 print('Train Epoch #{}: [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch + 1, bat_idx * args.batch_size, train_ds_size,
-                    100. * bat_idx / len(train_loader), loss.item()))
+                    epoch + 1, bat_idx * args.batch_size, len(t_dataset),
+                    100. * bat_idx / len(t_loader), loss.item()))
 
-        avg_loss = train_loss / samples_per_batch
+        avg_loss = ct_loss / (len(t_dataset) / args.batch_size)
+        t_loss.append(avg_loss)
         print('====> Epoch #{}: Average train loss: {:.4f}'
               .format(epoch + 1, avg_loss))
-        t_loss.append(avg_loss)
 
         # validation
-        (test_data, masks, onehots, text_lens) = list(enumerate(test_loader))[0][1]
-        x = test_data.narrow(1, 0, args.timesteps)
-        y = test_data.narrow(1, 1, args.timesteps)
-        masks = masks.narrow(1, 0, args.timesteps)
-        w_prev = onehots.narrow(1, 0, 1).squeeze()
-
-        outputs = model(x, onehots, masks, text_lens, w_prev)
-        eos, weights, mu1, mu2, sigma1, sigma2, rho = outputs
-        loss = log_likelihood(eos, weights, mu1, mu2,
-                              sigma1, sigma2, rho, y, masks)
-        validation_loss = loss.item()
-        print('====> Epoch: {} Average validation loss: {:.4f}'
-              .format(epoch + 1, validation_loss))
-        v_loss.append(validation_loss)
+        v_data = v_loader[0]
+        tmp_loss = forward(model, v_data, None)
+        v_loss.append(tmp_loss)
+        print('====> Epoch: {} Average validation loss: {:.4f}'.format(
+            epoch + 1, validation_loss))
 
         # checkpoint model and training
         filename = args.task + '_epoch_{}.pt'.format(epoch + 1)
@@ -193,7 +160,7 @@ def train_unconditional_model():
     start_time = time.time()
     for epoch in range(args.num_epochs):
         train_loss = 0
-        for bat_idx, (data, masks, onehots, text_lens) in enumerate(train_loader):
+        for bat_idx, (data, masks, onehots, text_lens) in enumerate(t_loader):
             # data (batch_size, timestep + 1, feature_dim)
 
             # gather training batch
@@ -217,7 +184,7 @@ def train_unconditional_model():
             if bat_idx % 10 == 0:
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch + 1, bat_idx * len(data), train_ds_size,
-                    100. * bat_idx / len(train_loader),
+                    100. * bat_idx / len(t_loader),
                     loss.item()))
 
         # update training performance

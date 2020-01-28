@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-
-cuda = torch.cuda.is_available()
 
 
 class HandwritingPrediction(nn.Module):
@@ -51,6 +48,7 @@ class HandwritingPrediction(nn.Module):
     def init_hidden(self):
         pass
 
+
 class HandwritingSynthesis(nn.Module):
     def __init__(self,
                  device,
@@ -66,156 +64,97 @@ class HandwritingSynthesis(nn.Module):
         self.hidden_size = hidden_size
         self.K = gaussian_funct_num
         self.vars_per_funct = vars_per_funct
-        self.h_init, self.c_init = [], []
-        self.k_prev = None
+        self.num_layers = 3
 
-        # stroke_dim = 3; text_dim = 60
-        self.stroke_dim, self.text_dim = feature_dim
+        h1, c1 = (torch.zeros(self.batch_size, self.hidden_size),
+                  torch.zeros(self.batch_size, self.hidden_size))
+        self.hidden1 = (h1.to(self.device), c1.to(self.device))
+        self.k_prev = torch.zeros(self.batch_size, self.K, 1).to(self.device)
 
-        self.input_transform = nn.Linear(self.stroke_dim, hidden_size)
-        self.skip_input_transform1 = nn.Linear(self.stroke_dim, hidden_size)
-        self.skip_input_transform2 = nn.Linear(self.stroke_dim, hidden_size)
-        self.skip_output_trainsform1 = nn.Linear(hidden_size, hidden_size)
-        self.skip_output_trainsform2 = nn.Linear(hidden_size, hidden_size)
+        # strk_dim = 3; sent_dim = 60
+        strk_dim, sent_dim = (3, 60)
+        lstm1_in_size = strk_dim + sent_dim
+        win_out_size = self.K * vars_per_funct  # 3K
+        mdn_out_size = 1 + ((1 + 1 + 2 + 2) * mix_components)
 
-        self.w_transform1 = nn.Linear(self.text_dim, hidden_size)
-        self.w_transform2 = nn.Linear(self.text_dim, hidden_size)
-        self.w_transform3 = nn.Linear(self.text_dim, hidden_size)
-
-        self.lstm1 = nn.LSTM(hidden_size, hidden_size, batch_first=True)
-        self.lstm2 = nn.LSTM(hidden_size, hidden_size, batch_first=True)
-        self.lstm3 = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        self.lstm1 = nn.LSTMCell(lstm1_in_size, hidden_size)
+        self.lstm2 = nn.LSTM(
+            lstm1_in_size + hidden_size, hidden_size, batch_first=True
+        )
+        self.lstm3 = nn.LSTM(
+            lstm1_in_size + hidden_size, hidden_size, batch_first=True)
+        self.softwindow = nn.Linear(hidden_size, win_out_size)
+        self.mdn = nn.Linear(hidden_size * self.num_layers, mdn_out_size)
         self.tanh = nn.Tanh()
 
-        win_out_size = self.K * vars_per_funct  # 3K
-        self.softwindow = nn.Linear(hidden_size, win_out_size)
+    def forward(self, strks, strks_m, sents, sents_m, onehots, w_prev):
+        # strks shape:   (batch size, timesteps, strk_dim)
+        # sents shape:   (batch size, sent_len)
+        # onehots shape: (batch size, sent_len, sent_dim)
+        timesteps = strks.size()[1]
+        sent_len = sents.size()[1]
 
-        mdn_out_size = 1 + ((1 + 1 + 2 + 2) * mix_components)
-        self.mdn = nn.Linear(hidden_size, mdn_out_size)
+        # LSTM 1
+        h1_list, wt_list = [], []
+        h1_t = self.hidden1[0]
+        c1_t = self.hidden1[1]
+        for t in range(timesteps):
+            # each stroke_t corresponding to a char of sentence_t
+            # concat the stroke feature and sentence feature
+            input_t = torch.cat((strks.narrow(1, t, 1), w_prev), dim=2)
+            input_t = input_t.squeeze()
 
-        self.init_hidden()
+            h1_t, c1_t = self.lstm1(input_t, (h1_t, c1_t))
+            # self.hidden1 = (self.hidden1[0].detach(), self.hidden1[1].detach())
 
-    def forward(self, strokes, onehots, masks, text_lens, w_prev):
-        # strokes shape:  (batch size, timesteps, features)
-        # onehots shape:  (batch size, len(line), len(alphabet))
-        timesteps = strokes.size()[1]
-        ''' working
-        # first LSTM layer
-        lstm_input = self.input_transform(strokes) + \
-            self.w_transform1(w_prev).unsqueeze(dim=1)
+            nn.utils.clip_grad_value_(h1_t, 10)
+            h1_list.append(h1_t)
+            h1_t, c1_t = h1_t.detach(), c1_t.detach()
 
-        lstm1_output, hidden1 = self.lstm1(lstm_input, self.hidden1)
-        self.hidden1 = (hidden1[0].detach(), hidden1[1].detach())
+            # attention mechanisim
+            p = self.softwindow(h1_t).unsqueeze(2)
+            a, b, k = p.chunk(self.vars_per_funct, dim=1)
+            a, b, k = a.exp(), b.exp(), self.k_prev + k.exp()
 
-        # attention mechanism
-        p = self.softwindow(lstm1_output)  # (batch size, timestep, 3K)
-        p = p.permute(1, 0, 2)             # (timestep, batch size, 3K)
-
-        a, b, k = torch.chunk(p, self.vars_per_funct, dim=-1)
-        a, b, k = a.exp(), b.exp(), k.exp()
-        k = torch.cumsum(k, dim=-1)
-
-        U = onehot.size()[1]
-        phi_t_u_list = []
-        for u in range(U):
-            phi = torch.sum(a * torch.exp(-1 * b * (k - u)**2), dim=-1)
-            phi_t_u_list.append(phi)
-            # todo:
-
-
-        phi_t_u = torch.stack(phi_t_u_list, dim=-1).permute(1, 0, 2)
-        w = torch.matmul(phi_t_u, onehot) # (batch size, timesteps, U)
-        self.attention_map = phi_t_u # (batch size, timesteps, len(alphabet))
-        # print('phi_t_u shape: {}'.format(phi_t_u.shape))
-        # print('onehot shape: {}'.format(onehot.shape))
-        # exit(0)
-        '''
-
-        U = onehots.size()[1]
-        hid_1, w_list = [], []
-        for time in range(timesteps):
-            stroke_at_t_time = strokes.narrow(1, time, 1)
-            mask_at_t_time = masks.narrow(1, time, 1)
-
-            # first LSTM layer
-            input_at_t_time = self.input_transform(stroke_at_t_time) + \
-                self.w_transform1(w_prev).unsqueeze(dim=1)
-            lstm1_output, hidden1 = self.lstm1(input_at_t_time, self.hidden1)
-            hid_1.append(lstm1_output)
-            self.hidden1 = (hidden1[0].detach(), hidden1[1].detach())
-
-            # attention mechanism
-            p = self.softwindow(lstm1_output)  # (batch size, timestep, 3K)
-            p = p.permute(0, 2, 1)             # (batch size, 3K, 1)
-
-            a, b, k = torch.chunk(p, self.vars_per_funct, dim=1)
-            a, b, k = a.exp(), b.exp(), k.exp()
-            k = k + self.k_prev
-
-            u = torch.arange(U, dtype=torch.float32, device=self.device)
+            # compute the "dist" between current pos and all positions
+            u = torch.arange(sent_len, dtype=torch.float32, device=self.device)
             phi = torch.sum(a * torch.exp(-1 * b * (k - u)**2), dim=1)
-            # if phi[0, -1] > torch.max(phi[0, :-1]):
-            #     self.EOS = True
-            phi = (phi * mask_at_t_time).unsqueeze(2)
-            wt = torch.sum(phi * onehots, dim=1, keepdim=True)
-            w_list.append(wt)
+            phi_masked = torch.unsqueeze(phi * sents_m, dim=2)
 
+            # w_t
+            w_t = torch.sum(phi_masked * onehots, dim=1, keepdim=True)
+            wt_list.append(w_t)
+
+            # update parameter for next iteration
             self.k_prev = k.detach()
-            w_prev = wt.squeeze().detach()
+            w_prev = w_t.detach()
 
+        # collection the hidden state from LSTM1 for LSTM2
+        hid1 = torch.stack(h1_list, dim=1)                 # (batch, timesteps, hidden_size)
+        win_vec = torch.stack(wt_list, dim=1).squeeze()    # (batch, timesteps, len(alphabet))
 
-        # (batch size, timestep, len(alphabet))
-        w = torch.stack(w_list, dim=-1).squeeze().permute(0, 2, 1)
+        # LSTM 2
+        # kip connection, LSTM1's output and window vector
+        lstm2_input = torch.cat((strks, hid1, win_vec), dim=2)
+        hid2, _ = self.lstm2(lstm2_input)
 
-        # second LSTM layer
-        lstm2_input = lstm1_output + \
-            self.skip_input_transform1(strokes) + self.w_transform2(w)
-        lstm2_output, hidden2 = self.lstm2(lstm2_input, self.hidden2)
-        self.hidden2 = (hidden2[0].detach(), hidden2[1].detach())
+        # LSTM 3
+        lstm3_input = torch.cat((strks, hid2, win_vec), dim=2)
+        hid3, _ = self.lstm2(lstm2_input)
 
-        # third LSTM layer
-        lstm3_input = lstm2_output + \
-            self.skip_input_transform2(strokes) + self.w_transform3(w)
-        lstm3_output, hidden3 = self.lstm3(lstm3_input, self.hidden3)
-        self.hidden3 = (hidden3[0].detach(), hidden3[1].detach())
+        nn.utils.clip_grad_value_(hid2, 10)
+        nn.utils.clip_grad_value_(hid3, 10)
 
-        # final output from LSTM
-        lstm_output = lstm3_output + \
-             self.skip_output_trainsform2(lstm2_output) + \
-             self.skip_output_trainsform1(lstm1_output)
-        nn.utils.clip_grad_value_(lstm1_output, 10)
-        nn.utils.clip_grad_value_(lstm2_output, 10)
-        nn.utils.clip_grad_value_(lstm3_output, 10)
-        nn.utils.clip_grad_value_(lstm_output, 10)
-
-        # feed into mixture density network
+        # mixture guassian network
+        lstm_output = torch.cat((hid1, hid2, hid3), dim=2)
         params = self.mdn(lstm_output)
         nn.utils.clip_grad_value_(params, 100)
 
         mdn_params = params.narrow(-1, 0, params.size()[-1] - 1)
-        pre_weights, mu1, mu2, \
-            log_sigma1, log_sigma2, \
-                pre_rho = mdn_params.chunk(6, dim=-1)
-        end = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
-        weights = torch.softmax(pre_weights, dim=-1)
-        rho = self.tanh(pre_rho)
-        sigma1, sigma2 = torch.exp(log_sigma1), torch.exp(log_sigma2)
+        pi_hat, mu1, mu2, sigma1_hat, sigma2_hat, rho_hat = mdn_params.chunk(6, dim=-1)
+        eos = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
+        weights = torch.softmax(pi_hat, dim=-1)
+        rho = self.tanh(rho_hat)
+        sigma1, sigma2 = sigma1_hat.exp(), sigma2_hat.exp()
 
-        return end, weights, mu1, mu2, sigma1, sigma2, rho
-
-
-    def init_hidden(self):
-        # (batch size, seq, feature)
-        h1, c1 = (torch.zeros(1, self.batch_size, self.hidden_size),
-                  torch.zeros(1, self.batch_size, self.hidden_size))
-        h2, c2 = (torch.zeros(1, self.batch_size, self.hidden_size),
-                  torch.zeros(1, self.batch_size, self.hidden_size))
-        h3, c3 = (torch.zeros(1, self.batch_size, self.hidden_size),
-                  torch.zeros(1, self.batch_size, self.hidden_size))
-
-        self.hidden1 = (h1.to(self.device), c1.to(self.device))
-        self.hidden2 = (h2.to(self.device), c2.to(self.device))
-        self.hidden3 = (h3.to(self.device), c3.to(self.device))
-        self.k_prev = torch.zeros(self.batch_size, self.K, 1).to(self.device)
-
-        # print('hidden shape: {}'.format(self.hidden1[0].shape))
+        return eos, weights, mu1, mu2, sigma1, sigma2, rho
