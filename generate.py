@@ -22,8 +22,7 @@ def sample_prediction(mix_components,
                       mu2,
                       sigma1,
                       sigma2,
-                      rho,
-                      bias=0.):
+                      rho):
     # batch_size = 1, timestep = 1
     # the meaningful values can be accessed via data.[][][x]
     prob_eos = eos.data[0][0][0]
@@ -141,8 +140,7 @@ def generate_conditionally(text,
                            hidden_size=400,
                            mix_components=20,
                            K=10,
-                           bias1=1.,
-                           bias2=1.,
+                           bias=1.,
                            feature_dim=(3, 60),
                            random_state=700,
                            saved_model='con_model.pt'):
@@ -198,11 +196,11 @@ def generate_conditionally(text,
         #   onehots:   (batch size, len(text line), len(char list))
         #   text_lens: (batch size, 1)
         output1, output2 = model(strk, strk_m, onehot, sent_m, w_prev, k_prev,
-                                 prev1, prev2, prev3)
+                                 prev1, prev2, prev3, bias)
         eos, weights, mu1, mu2, sigma1, sigma2, rho = output1
         w_prev, k_prev, prev1, prev2, prev3, phi_prev = output2
         next_point = sample_prediction(mix_components, eos, weights, mu1, mu2,
-                                       sigma1, sigma2, rho, bias2)
+                                       sigma1, sigma2, rho)
         records.append(next_point)
         # print(next_point)
 
@@ -234,6 +232,8 @@ def attention_plot(phis):
     plt.show()
 
 
+
+generate_conditionally('Bo ge niu bi')
 # generate_conditionally('hello world')
-generate_conditionally('how are you?')
+# generate_conditionally('how are you?')
 # generate_unconditionally()
