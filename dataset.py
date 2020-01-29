@@ -15,7 +15,6 @@ class HandwritingDataset(Dataset):
                self.sents[idx], self.sents_m[idx], \
                self.onehots[idx]
 
-
     def __len__(self):
         return self.len
 
@@ -47,21 +46,22 @@ class HandwritingDataset(Dataset):
         return torch.from_numpy(np_data).type(dtype)
 
     def _summary(self):
-        n  = 42
+        n  = 56
         print('-' * n)
         print('| Dataset Info')
         print('-' * n)
         print('| dataset length:        ', self.len)
         print('| alphabet length:       ', len(self.char_to_code))
         print('| strokes shape:         ', self.strks.shape)
-        print('| strokes mask shape:    ', self.strks.shape)
+        print('| strokes mask shape:    ', self.strks_m.shape)
         print('| sentences shape:       ', self.sents.shape)
-        print('| sentences mask shape:  ', self.sents.shape)
+        print('| sentences mask shape:  ', self.sents_m.shape)
         print('| sents one_hot shape:   ', self.onehots.shape)
         print('-' * n)
 
 
 # t_dataset = HandwritingDataset(is_training=True)
+# loader = DataLoader(t_dataset, batch_size=1, shuffle=False, drop_last=True)
 # v_dataset = HandwritingDataset(is_training=False)
 # print('length of the training set: ', len(t_dataset))
 # print('length of the validation set: ', len(v_dataset))

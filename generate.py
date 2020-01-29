@@ -41,40 +41,9 @@ def sample_prediction(mix_components, eos, weights, mu1, mu2, sigma1, sigma2, rh
         means, covariance_matrix)  # point (p1, p2)
 
     # remember the prediction of current step (eos, p1, p2)
-    out = np.array([sample_eos, prediction_point[0], prediction_point[1]])
+    out = np.insert(prediction_point, 0, sample_eos)
     return out
 
-'''
-def sample_y(m, e, pi, mu1, mu2, sigma1, sigma2, rho):
-    r1 = np.random.rand()
-    cumulative_weight = 0
-    y = torch.zeros([1, 3]).to(device)
-
-    # Sample from GMM
-    for i in range(m):
-        cumulative_weight += pi[0, i]
-        if cumulative_weight > r1:
-            mu1_i = mu1[0, i]
-            mu2_i = mu2[0, i]
-            sigma1_i = sigma1[0, i]
-            sigma2_i = sigma2[0, i]
-            rho_i = rho[0, i]
-            mvn_distribution = torch.distributions.multivariate_normal.MultivariateNormal(
-                loc=torch.Tensor([mu1_i, mu2_i]),
-                covariance_matrix=torch.Tensor(
-                    [[sigma1_i**2, rho_i * sigma1_i * sigma2_i],
-                     [rho_i * sigma1_i * sigma2_i, sigma2_i**2]]))
-            y[0, 1:] = mvn_distribution.sample()
-            break
-    r2 = np.random.rand()
-    if e > r2:
-        y[0, 0] = 1
-    else:
-        y[0, 0] = 0
-
-    return y
-
-'''
 def generate_unconditionally(hidden_size=400,
                              mix_components=20,
                              steps=700,
@@ -131,6 +100,35 @@ def text_to_onehot(text, char_to_code):
     return torch.from_numpy(onehot).type(torch.FloatTensor)
 
 
+def to_one_hot(tensor_data, alphabet_len):
+    onehots = []
+    for line in tensor_data:
+        oh = np.zeros((line.shape[0], alphabet_len))
+        oh[np.arange(line.shape[0]), line.int()] = 1
+        onehots.append(oh)
+    return torch.from_numpy(np.asarray(onehots)).type(torch.FloatTensor)
+
+
+def encode_sentences(lines, max_len, char_to_code):
+    sen_len, unknow_code = len(lines), len(char_to_code)
+    sentences_coded = np.zeros((sen_len, max_len))
+    mask = np.zeros((sen_len, max_len))
+
+    for i, line in enumerate(lines):
+        mask[i][0:len(line)] = 1
+        for j, ch in enumerate(line):
+            if ch in char_to_code:
+                sentences_coded[i][j] = char_to_code[ch]
+            else:
+                sentences_coded[i][j] = unknow_code
+
+    return sentences_coded, mask
+
+
+def to_torch(np_data, dtype=torch.FloatTensor):
+    return torch.from_numpy(np_data).type(dtype)
+
+
 def generate_conditionally(text,
                            hidden_size=400,
                            mix_components=20,
@@ -140,29 +138,48 @@ def generate_conditionally(text,
                            feature_dim=(3, 60),
                            random_state=700,
                            saved_model='con_model.pt'):
-
+    text = text + ' '
     char_to_code = torch.load('data/char_to_code.pt')
-    model = HandwritingSynthesis(device, 1, hidden_size, K,
-                                 mix_components, feature_dim)
+    model = HandwritingSynthesis(device, len(text), 1, hidden_size,
+                                 K, mix_components)
     model.load_state_dict(torch.load(saved_model)['model'])
     model.to(device)
 
+
+    k_prev = torch.zeros(1, K).to(device)
+    h1 = c1 = torch.zeros(1, hidden_size)
+    h2 = c2 = torch.zeros(1, 1, hidden_size)
+    h3 = c3 = torch.zeros(1, 1, hidden_size)
+    h1, c1 = h1.to(device), c1.to(device)
+    h2, c2 = h2.to(device), c2.to(device)
+    h3, c3 = h3.to(device), c3.to(device)
+
     np.random.seed(random_state)
-    timesteps = 600
+    timesteps = 400
 
-    text_len = torch.from_numpy(
-        np.array([[len(text)]])).type(torch.FloatTensor
-    ).to(device)
-    onehots = text_to_onehot(text, char_to_code)
-    onehots = onehots.unsqueeze(0).to(device)
-    stroke = torch.zeros((1, 1, 3)).to(device)
-    w_prev = onehots.narrow(1, 0, 1).squeeze()
-    w_prev = w_prev.unsqueeze(dim=0).to(device)
+    # prepare needed data
+    # strk, strks_m, sents, sents_m, onehots, w_prev
+    strk = to_torch(np.zeros((1, 1, 3))).to(device) # (batch, sed_len, feature_dim)
+    strk_m = to_torch(np.ones((1, 1))).to(device)   # (batch, sed_len)
+    sent, sent_m = encode_sentences([text], len(text), char_to_code)
+    sent, sent_m = to_torch(sent), to_torch(sent_m)
+    onehot = to_one_hot(sent, len(char_to_code) + 1).to(device)
+    sent, sent_m = sent.to(device), sent_m.to(device)
+    w_prev = onehot.narrow(1, 0, 1)
+    prev1, prev2, prev3 = (h1, c1), (h2, c2),(h3, c2)
 
-    # stop, count, phis, record = False, 0, [], [np.zeros(3)]
-    record = [np.array([0, 0, 0])]
-    attention_maps = []
-    for i in range(timesteps):
+    print('strk shape:', strk.shape)
+    print('strk_m shape:', strk_m.shape)
+    print('sent shape:', sent.shape)
+    print('sent_m shape:', sent_m.shape)
+    print('onehot shape:', onehot.shape)
+
+    stop = False
+    count = 0
+    phis = []
+    records = [np.zeros(3)]
+    # for _ in range(timesteps):
+    while not stop:
         # print(stroke.shape)
         # print(onehots.shape)
         # print(text_len.shape)
@@ -173,20 +190,44 @@ def generate_conditionally(text,
         #   masks:     (batch size, timestep)
         #   onehots:   (batch size, len(text line), len(char list))
         #   text_lens: (batch size, 1)
-
-        eos, weights, mu1, mu2, \
-            sigma1, sigma2, rho = model(stroke, onehots, text_len, w_prev)
-
-        out = sample_prediction(mix_components, eos, weights, mu1, mu2,
-                                sigma1, sigma2, rho)
-        record.append(out)
+        output1, output2 = model(strk, strk_m, onehot, sent_m, w_prev, k_prev,
+                                 prev1, prev2, prev3)
+        eos, weights, mu1, mu2, sigma1, sigma2, rho = output1
+        w_prev, k_prev, prev1, prev2, prev3, phi_prev = output2
+        next_point = sample_prediction(mix_components, eos, weights, mu1, mu2,
+                                       sigma1, sigma2, rho)
+        records.append(next_point)
+        # print(next_point)
 
         # convert current output as input to the next step
-        stroke = torch.from_numpy(out).type(torch.FloatTensor).to(device)
-        stroke = stroke.view((1, 1, 3))
-
-    plot_stroke(np.array(record))
+        strk = torch.from_numpy(next_point).type(torch.FloatTensor).to(device)
+        strk = strk.view((1, 1, 3))
 
 
-generate_conditionally('Hellow world, nihao')
+        phi_prev = phi_prev.squeeze(0)
+
+        phis.append(phi_prev)
+        phi_prev = phi_prev.data.cpu().numpy()
+
+        # hack to prevent early exit (attention is unstable at the beginning)
+        if count >= 20 and np.max(phi_prev) == phi_prev[-1]:
+            stop = True
+        count += 1
+
+    phis = torch.stack(phis).data.cpu().numpy().T
+    plot_stroke(np.array(records))
+    attention_plot(phis)
+
+
+def attention_plot(phis):
+    plt.rcParams["figure.figsize"] = (12, 6)
+    phis = phis / (np.sum(phis, axis=0, keepdims=True))
+    plt.xlabel('handwriting generation')
+    plt.ylabel('text scanning')
+    plt.imshow(phis, cmap='hot', interpolation='nearest', aspect='auto')
+    plt.show()
+
+
+# generate_conditionally('hello world')
+generate_conditionally('my name is haotao')
 # generate_unconditionally()
