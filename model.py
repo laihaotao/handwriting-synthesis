@@ -211,7 +211,7 @@ class HandwritingSynthesis(nn.Module):
         mdn_params = params.narrow(-1, 0, params.size()[-1] - 1)
         pi_hat, mu1, mu2, sigma1_hat, sigma2_hat, rho_hat = mdn_params.chunk(6, dim=-1)
         eos = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
-        weights = torch.softmax(pi_hat, dim=-1)
+        weights = torch.softmax(pi_hat * (1 + bias), dim=-1)
         rho = self.tanh(rho_hat)
         sigma1, sigma2 = sigma1_hat.exp(), sigma2_hat.exp()
 

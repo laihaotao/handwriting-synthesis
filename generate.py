@@ -15,7 +15,15 @@ device = torch.device('cuda' if cuda else 'cpu')
 
 
 
-def sample_prediction(mix_components, eos, weights, mu1, mu2, sigma1, sigma2, rho):
+def sample_prediction(mix_components,
+                      eos,
+                      weights,
+                      mu1,
+                      mu2,
+                      sigma1,
+                      sigma2,
+                      rho,
+                      bias=0.):
     # batch_size = 1, timestep = 1
     # the meaningful values can be accessed via data.[][][x]
     prob_eos = eos.data[0][0][0]
@@ -155,7 +163,6 @@ def generate_conditionally(text,
     h3, c3 = h3.to(device), c3.to(device)
 
     np.random.seed(random_state)
-    timesteps = 400
 
     # prepare needed data
     # strk, strks_m, sents, sents_m, onehots, w_prev
@@ -178,7 +185,7 @@ def generate_conditionally(text,
     count = 0
     phis = []
     records = [np.zeros(3)]
-    # for _ in range(timesteps):
+
     while not stop:
         # print(stroke.shape)
         # print(onehots.shape)
@@ -195,7 +202,7 @@ def generate_conditionally(text,
         eos, weights, mu1, mu2, sigma1, sigma2, rho = output1
         w_prev, k_prev, prev1, prev2, prev3, phi_prev = output2
         next_point = sample_prediction(mix_components, eos, weights, mu1, mu2,
-                                       sigma1, sigma2, rho)
+                                       sigma1, sigma2, rho, bias2)
         records.append(next_point)
         # print(next_point)
 
@@ -205,7 +212,6 @@ def generate_conditionally(text,
 
 
         phi_prev = phi_prev.squeeze(0)
-
         phis.append(phi_prev)
         phi_prev = phi_prev.data.cpu().numpy()
 
@@ -229,5 +235,5 @@ def attention_plot(phis):
 
 
 # generate_conditionally('hello world')
-generate_conditionally('my name is haotao')
+generate_conditionally('how are you?')
 # generate_unconditionally()
