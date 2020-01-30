@@ -192,10 +192,10 @@ if __name__ == "__main__":
                         help='path to the trained synthesis model')
     args = parser.parse_args()
     if args.task == 'prediction':
-        stroke = train_unconditional_model(saved_model=args.pmodel)
+        stroke = generate_unconditionally(saved_model=args.pmodel)
         plot_stroke(stroke)
     elif args.task == 'synthesis':
-        stroke, phis = train_conditional_model(args.text, saved_model=args.smodel)
+        stroke, phis = generate_conditionally(args.text, saved_model=args.smodel)
         plot_stroke(stroke)
         plot_attention(phis)
     else:
