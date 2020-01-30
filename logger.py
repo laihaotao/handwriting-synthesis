@@ -17,7 +17,7 @@ def setup_logger(name, save_dir, distributed_rank=0):
 
     if save_dir:
         if not os.path.exists(save_dir):
-            os.mkdir(directory)
+            os.mkdir(save_dir)
         fh = logging.FileHandler(os.path.join(
             save_dir, name + '_log.txt'), mode='w')
         fh.setLevel(logging.DEBUG)
