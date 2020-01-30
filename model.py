@@ -36,27 +36,17 @@ class HandwritingPrediction(nn.Module):
         h1, (h1_n, c1_n) = self.lstm1(x, prev1)
         x2 = torch.cat([h1, x], dim=-1)
         h2, (h2_n, c2_n) = self.lstm2(x2, prev2)
-        x3 = torch.cat([h2, x2], dim=-1)
+        x3 = torch.cat([h2, x], dim=-1)
         h3, (h3_n, c3_n) = self.lstm3(x3, prev3)
         h  = torch.cat([h1, h2, h3], dim=-1)
 
         # mixture of guassian computation, in the paper, fomular(15) ~ (22)
         params = self.mdn(h)
-
-        # todo: clean up here
-        # mdn_params = params.narrow(-1, 0, params.size()[-1] - 1)
-        # pi_hat, mu1, mu2, sigma1_hat, sigma2_hat, rho_hat \
-        #     = mdn_params.chunk(6, dim=-1)
-        # end = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
-        # weights = torch.softmax(pi_hat, dim=-1)
-        # rho = self.tanh(rho_hat)
-        # sigma1, sigma2 = torch.exp(sigma1_hat), torch.exp(sigma2_hat)
-
         eos, weights, mu1, mu2, sigma1, sigma2, rho = \
             calc_gaussian_mixture(self.tanh, params)  # no bias was used here
 
-        return (end, weights, mu1, mu2, sigma1, sigma2, rho), \
-               (h1_n, c1_n), (h2_n, c2_n)
+        return (eos, weights, mu1, mu2, sigma1, sigma2, rho), \
+               ((h1_n, c1_n), (h2_n, c2_n), (h3_n, c3_n))
 
 
 # One LSTM layer with Attention mechanism attacted
@@ -199,15 +189,6 @@ class HandwritingSynthesis(nn.Module):
         lstm_output = torch.cat((hid1, hid2, hid3), dim=2)
         params = self.mdn(lstm_output)
         nn.utils.clip_grad_value_(params, 100)  # gradient clip for output
-
-        # todo: clean up here
-        # mdn_params = params.narrow(-1, 0, params.size()[-1] - 1)
-        # pi_hat, mu1, mu2, sigma1_hat, sigma2_hat, rho_hat = mdn_params.chunk(6, dim=-1)
-        # eos = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
-        # weights = torch.softmax(pi_hat * (1 + bias), dim=-1) # no bias during training
-        # rho = self.tanh(rho_hat)
-        # # adaptive to formula (21) to (61) and (62)
-        # sigma1, sigma2 = torch.exp(sigma1_hat - bias), torch.exp(sigma2_hat - bias)
 
         eos, weights, mu1, mu2, sigma1, sigma2, rho = \
             calc_gaussian_mixture(self.tanh, params, bias)

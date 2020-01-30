@@ -18,9 +18,7 @@ from utils import save_checkpoint, save_loss_figure
 from logger import setup_logger
 
 
-# set up a logger for a training
-train_id = str(time.time())
-logger = setup_logger(train_id)
+
 
 # most of default values here are took from the paper
 parser = argparse.ArgumentParser()
@@ -35,6 +33,13 @@ parser.add_argument('--mix_components', type=int, default=20)
 parser.add_argument('--K', type=int, default=10)
 parser.add_argument('--model_dir', type=str, default='save')
 args = parser.parse_args()
+
+# set up a logger for a training
+train_id = str(time.time())
+logger = setup_logger(train_id, args.model_dir)
+
+logger.info('training args')
+logger.info(args)
 
 # check gpu
 cuda = torch.cuda.is_available()
@@ -81,13 +86,12 @@ def train_unconditional_model():
 
             # forward pass
             optimizer.zero_grad()
-            output, _, _ = model(x, (h1, c1), (h2, c2))
+            output, _ = model(x, (h1, c1), (h2, c2), (h3, c3))
             loss = neg_log_likelihood(output, target, strks_m)
             ct_loss += loss.item()
 
             # backprogation
             loss.backward()
-            torch.nn.utils.clip_grad_norm(model.parameters(), 10)
             optimizer.step()
 
             if bat_idx % 10 == 0:
@@ -100,30 +104,31 @@ def train_unconditional_model():
         print('====> Epoch #{}: Average train loss: {:.4f}'
               .format(epoch + 1, avg_loss))
 
-        # validation
-        v_data = list(enumerate(v_loader))[0][1]
-        for i in range(len(v_data)):
-            v_data[i] = v_data[i].to(device)
-        strks, strks_m, sents, sents_m, onehots = v_data
+        # note: disable the validation process, sicne my PC run out of memory
+        # # validation
+        # v_data = list(enumerate(v_loader))[0][1]
+        # for i in range(len(v_data)):
+        #     v_data[i] = v_data[i].to(device)
+        # strks, strks_m, sents, sents_m, onehots = v_data
 
-        x = strks.narrow(1, 0, args.timesteps)
-        strks_m = strks_m.narrow(1, 0, args.timesteps)
-        target = strks.narrow(1, 1, args.timesteps)
+        # x = strks.narrow(1, 0, args.timesteps)
+        # strks_m = strks_m.narrow(1, 0, args.timesteps)
+        # target = strks.narrow(1, 1, args.timesteps)
 
-        output, _, _ = model(x, strks_m, onehots, sents_m, w_prev, k_prev,
-                             (h1, c1), (h2, c2))
-        tmp_loss = neg_log_likelihood(output, target, strks_m)
-        v_loss.append(tmp_loss)
-        print('====> Epoch: {} Average validation loss: {:.4f}'.format(
-            epoch + 1, tmp_loss))
+        # output, _ = model(x, (h1, c1), (h2, c2), (h3, c3))
+        # validation_loss = neg_log_likelihood(output, target, strks_m)
+        # v_loss.append(validation_loss)
+        # print('====> Epoch: {} Average validation loss: {:.4f}'.format(
+        #     epoch + 1, validation_loss))
 
         # save the intermediate result
+        validation_loss = 1.0
         filename = args.task + '_epoch_{}.pt'.format(epoch + 1)
         save_checkpoint(epoch, model, validation_loss,
                         optimizer, args.model_dir, filename)
         print('wall time: {}s'.format(time.time() - start_time))
 
-    save_loss_figure(t_loss, v_loss)
+    save_loss_figure(args, t_loss, v_loss)
 
 
 def train_conditional_model():
@@ -184,7 +189,7 @@ def train_conditional_model():
         logger.info('====> Epoch #{}: Average train loss: {:.4f}'
               .format(epoch + 1, avg_loss))
 
-
+        # note: disable the validation process, sicne my PC run out of memory
         # # validation
         # v_data = list(enumerate(v_loader))[0][1]
         # for i in range(len(v_data)):
@@ -206,22 +211,19 @@ def train_conditional_model():
 
         # save the intermediate result
         tmp_loss = 1.0
-        v_loss.append(tmp_loss)
-        filename = args.task + '_train_id' + '_epoch_{}.pt'.format(epoch + 1)
+        filename = args.task + '_epoch_{}.pt'.format(epoch + 1)
         save_checkpoint(epoch, model, tmp_loss, optimizer,
                         args.model_dir, filename)
         logger.info('wall time: {}s'.format(time.time() - start_time))
 
     # visualize the change of the loss
-    save_loss_figure(t_loss, v_loss)
+    save_loss_figure(args, t_loss, v_loss)
 
 
 if __name__ == "__main__":
     if args.task == 'prediction':
         train_unconditional_model()
-
     elif args.task == 'synthesis':
         train_conditional_model()
-
     else:
         print('no such task!')

@@ -1,28 +1,18 @@
 import numpy as np
-import matplotlib.pyplot as plt
-
 import torch
-from torch.autograd import Variable
 
-from utils import plot_stroke
+from utils import plot_stroke, attention_plot
 from model import HandwritingPrediction, HandwritingSynthesis
 
-
-# check gpu
+import os
+dir_path = os.path.dirname(os.path.realpath(__file__))
 cuda = torch.cuda.is_available()
-print('cuda: {}'.format(cuda))
 device = torch.device('cuda' if cuda else 'cpu')
 
 
+def sample_prediction(mix_components, params):
+    eos, weights, mu1, mu2, sigma1, sigma2, rho = params
 
-def sample_prediction(mix_components,
-                      eos,
-                      weights,
-                      mu1,
-                      mu2,
-                      sigma1,
-                      sigma2,
-                      rho):
     # batch_size = 1, timestep = 1
     # the meaningful values can be accessed via data.[][][x]
     prob_eos = eos.data[0][0][0]
@@ -51,60 +41,44 @@ def sample_prediction(mix_components,
     out = np.insert(prediction_point, 0, sample_eos)
     return out
 
+
 def generate_unconditionally(hidden_size=400,
                              mix_components=20,
                              steps=700,
                              feature_dim=3,
                              random_state=700,
-                             saved_model='unc_model.pt'):
+                             saved_model='backup/unc_model.pt'):
+    np.random.seed(random_state)
 
     # load model and trained weights
-    model = HandwritingPrediction(hidden_size, mix_components, feature_dim)
+    model = HandwritingPrediction(  # 3 is the stroke feature dim
+        args.hidden_size, args.mix_components, 3)
     model.load_state_dict(torch.load(saved_model)['model'])
+    optimizer = optim.Adam([{'params': model.parameters()}],
+                           lr=args.learning_rate)
+    model.to(device)
 
-    np.random.seed(random_state)
-    zero_tensor = torch.zeros((1, 1, 3))
-    init_states = [torch.zeros((1, 1, hidden_size))] * 4
-    if cuda:
-        model = model.cuda()
-        zero_tensor = zero_tensor.cuda()
-        init_states = [state.cuda() for state in init_states]
-    x = Variable(zero_tensor)
-    init_states = [Variable(state, requires_grad=False) for state in init_states]
-    h1_init, c1_init, h2_init, c2_init = init_states
-    prev = (h1_init, c1_init)
-    prev2 = (h2_init, c2_init)
+    # create initial input for the model, each layer
+    # need 2 init values (we have 3 layers so 6 values)
+    init_states = [torch.zeros((1, args.batch_size, args.hidden_size))] * 6
+    init_states = [state.to(device) for state in init_states]
+    h1, c1, h2, c2, h3, c3 = init_states
+    prev1, prev2, prev3 = (h1, c1), (h2, c2), (h3, c3)
+    strk = torch.zeros((1, 1, 3)).to(device)
 
     record = [np.array([0, 0, 0])]
-
     for i in range(steps):
-        eos, weights, mu1, mu2, sigma1, sigma2, \
-            rho, prev, prev2 = model(x, prev, prev2)
-
-        out = sample_prediction(mix_components, eos, weights,
-                                mu1, mu2, sigma1, sigma2, rho)
+        output, prev1, prev2, prev3 = model(strk, prev1, prev2, prev3)
+        out = sample_prediction(mix_components, output)
         record.append(out)
 
         # convert current output as input to the next step
-        x = torch.from_numpy(out).type(torch.FloatTensor)
-        if cuda:
-            x = x.cuda()
-        x = Variable(x, requires_grad=False)
-        x = x.view((1, 1, 3))
+        strk = torch.from_numpy(out).type(torch.FloatTensor).to(device)
+        strk = strk.view((1, 1, 3))
 
-    plot_stroke(np.array(record))
-
-
-
-def text_to_onehot(text, char_to_code):
-    onehot = np.zeros((len(text), len(char_to_code) + 1))
-    for i in range(len(text)):
-        ch = text[i]
-        try:
-            onehot[i][char_to_code[ch]] = 1
-        except:
-            onehot[i][-1] = 1
-    return torch.from_numpy(onehot).type(torch.FloatTensor)
+    res_strks = np.array(record)
+    plot_stroke(res_strks)
+    return res_strks
 
 
 def to_one_hot(tensor_data, alphabet_len):
@@ -143,15 +117,16 @@ def generate_conditionally(text,
                            bias=1.,
                            feature_dim=(3, 60),
                            random_state=700,
-                           saved_model='con_model.pt'):
-    text = text + ' '
-    char_to_code = torch.load('data/char_to_code.pt')
-    model = HandwritingSynthesis(device, len(text), 1, hidden_size,
-                                 K, mix_components)
+                           saved_model='backup/con_model.pt'):
+    text = text + ' ' # space here means a line end indicator
+    file_path = os.path.join(dir_path, 'data', 'char_to_code.pt')
+    char_to_code = torch.load(file_path)
+    model = HandwritingSynthesis(
+        device, len(text), 1, hidden_size, K, mix_components)
     model.load_state_dict(torch.load(saved_model)['model'])
     model.to(device)
 
-
+    # prepare init data
     k_prev = torch.zeros(1, K).to(device)
     h1 = c1 = torch.zeros(1, hidden_size)
     h2 = c2 = torch.zeros(1, 1, hidden_size)
@@ -164,32 +139,18 @@ def generate_conditionally(text,
 
     # prepare needed data
     # strk, strks_m, sents, sents_m, onehots, w_prev
-    strk = to_torch(np.zeros((1, 1, 3))).to(device) # (batch, sed_len, feature_dim)
-    strk_m = to_torch(np.ones((1, 1))).to(device)   # (batch, sed_len)
+    strk = torch.zeros((1, 1, 3)).to(device) # (batch, sed_len, feature_dim)
+    strk_m = torch.ones((1, 1)).to(device)   # (batch, sed_len)
     sent, sent_m = encode_sentences([text], len(text), char_to_code)
     sent, sent_m = to_torch(sent), to_torch(sent_m)
     onehot = to_one_hot(sent, len(char_to_code) + 1).to(device)
     sent, sent_m = sent.to(device), sent_m.to(device)
     w_prev = onehot.narrow(1, 0, 1)
-    prev1, prev2, prev3 = (h1, c1), (h2, c2),(h3, c2)
+    prev1, prev2, prev3 = (h1, c1), (h2, c2), (h3, c2)
 
-    print('strk shape:', strk.shape)
-    print('strk_m shape:', strk_m.shape)
-    print('sent shape:', sent.shape)
-    print('sent_m shape:', sent_m.shape)
-    print('onehot shape:', onehot.shape)
-
-    stop = False
-    count = 0
-    phis = []
+    stop, count, phis = False, 0, []
     records = [np.zeros(3)]
-
     while not stop:
-        # print(stroke.shape)
-        # print(onehots.shape)
-        # print(text_len.shape)
-        # print(w_prev.shape)
-
         # input data shape:
         #   strokes:   (1, timestep + 1, 3)
         #   masks:     (batch size, timestep)
@@ -197,10 +158,8 @@ def generate_conditionally(text,
         #   text_lens: (batch size, 1)
         output1, output2 = model(strk, strk_m, onehot, sent_m, w_prev, k_prev,
                                  prev1, prev2, prev3, bias)
-        eos, weights, mu1, mu2, sigma1, sigma2, rho = output1
         w_prev, k_prev, prev1, prev2, prev3, phi_prev = output2
-        next_point = sample_prediction(mix_components, eos, weights, mu1, mu2,
-                                       sigma1, sigma2, rho)
+        next_point = sample_prediction(mix_components, output1)
         records.append(next_point)
         # print(next_point)
 
@@ -208,32 +167,16 @@ def generate_conditionally(text,
         strk = torch.from_numpy(next_point).type(torch.FloatTensor).to(device)
         strk = strk.view((1, 1, 3))
 
-
         phi_prev = phi_prev.squeeze(0)
         phis.append(phi_prev)
         phi_prev = phi_prev.data.cpu().numpy()
 
-        # hack to prevent early exit (attention is unstable at the beginning)
+        # 20 is a hack to prevent early exit
         if count >= 20 and np.max(phi_prev) == phi_prev[-1]:
             stop = True
         count += 1
 
     phis = torch.stack(phis).data.cpu().numpy().T
-    plot_stroke(np.array(records))
-    attention_plot(phis)
-
-
-def attention_plot(phis):
-    plt.rcParams["figure.figsize"] = (12, 6)
-    phis = phis / (np.sum(phis, axis=0, keepdims=True))
-    plt.xlabel('handwriting generation')
-    plt.ylabel('text scanning')
-    plt.imshow(phis, cmap='hot', interpolation='nearest', aspect='auto')
-    plt.show()
-
-
-
-generate_conditionally('Bo ge niu bi')
-# generate_conditionally('hello world')
-# generate_conditionally('how are you?')
-# generate_unconditionally()
+    res_strks = np.array(records)
+    # attention_plot(phis)
+    return res_strks, phis
