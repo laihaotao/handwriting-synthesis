@@ -5,6 +5,13 @@ described in the paper
 "[Generating Sequences With Recurrent Neural Networks](https://arxiv.org/abs/1308.0850)"
 published by Alex Graves.
 
+Two produced examples from the models (the first one is for prediction while
+the second one is for synthesis given the string "how are you")
+
+![example from prediction model](./examples/p_example.png)
+
+![example from synthesis model](./examples/s_example.png)
+
 ## Environment
 
 The codebase has been tested to run on a Mac (10.14.6) or a
