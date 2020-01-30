@@ -42,6 +42,13 @@ pytorch=1.4.0=py3.6_0
 
 ## Run Instruction
 
+Before training you will need to run the `prepare_data.py` file to create
+the needed data files by the following command:
+
+```
+python prepare_data.py
+```
+
 To train the model, run `train.py` file. It supports the following
 arguments to control the training process. By default, it is set to
 train the prediction network.
