@@ -5,4 +5,7 @@ __pycache__/
 .vscode/
 .ipynb_checkpoints/
 *.pdf
-save/
+save*/
+backup/
+data/t*
+data/v*
