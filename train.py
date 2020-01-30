@@ -24,14 +24,22 @@ from logger import setup_logger
 parser = argparse.ArgumentParser()
 parser.add_argument('--task', type=str, default='prediction',
                     help='"prediction" or "synthesis"')
-parser.add_argument('--num_epochs', type=int, default=50)
-parser.add_argument('--batch_size', type=int, default=50)
-parser.add_argument('--learning_rate', type=float, default=8E-4)
-parser.add_argument('--timesteps', type=int, default=800)
-parser.add_argument('--hidden_size', type=int,default=400)
-parser.add_argument('--mix_components', type=int, default=20)
-parser.add_argument('--K', type=int, default=10)
-parser.add_argument('--model_dir', type=str, default='save')
+parser.add_argument('--num_epochs', type=int, default=50,
+                    help='number of training epochs')
+parser.add_argument('--batch_size', type=int, default=50,
+                    help='batch size')
+parser.add_argument('--learning_rate', type=float, default=8E-4,
+                    help='learning rate for training')
+parser.add_argument('--timesteps', type=int, default=800,
+                    help='step in time direction for LSTM')
+parser.add_argument('--hidden_size', type=int,default=400,
+                    help='number of hiddent state for a LSTM cell')
+parser.add_argument('--mix_components', type=int, default=20,
+                    help='number of mixture distribution')
+parser.add_argument('--K', type=int, default=10,
+                    help='number of gaussian functions for attention')
+parser.add_argument('--model_dir', type=str, default='save',
+                    help='location to save the result')
 args = parser.parse_args()
 
 # set up a logger for a training

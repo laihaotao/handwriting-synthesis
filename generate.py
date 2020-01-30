@@ -1,7 +1,8 @@
+import argparse
 import numpy as np
 import torch
 
-from utils import plot_stroke, attention_plot
+from utils import plot_stroke, plot_attention
 from model import HandwritingPrediction, HandwritingSynthesis
 
 import os
@@ -177,5 +178,27 @@ def generate_conditionally(text,
 
     phis = torch.stack(phis).data.cpu().numpy().T
     res_strks = np.array(records)
-    # attention_plot(phis)
+    # plot_attention(phis)
     return res_strks, phis
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--task', type=str, default='prediction',
+                        help='"prediction" or "synthesis"')
+    parser.add_argument('--text', type=str, default='hello world',
+                        help='text used for synthesis')
+    parser.add_argument('--pmodel', type=str, default='pretrained/prediction_model.pt',
+                        help='path to the trained prediction model')
+    parser.add_argument('--smodel', type=str, default='pretrained/synthesis_model.pt',
+                        help='path to the trained synthesis model')
+    args = parser.parse_args()
+    if args.task == 'prediction':
+        stroke = train_unconditional_model(saved_model=args.pmodel)
+        plot_stroke(stroke)
+    elif args.task == 'synthesis':
+        stroke, phis = train_conditional_model(args.text, saved_model=args.smodel)
+        plot_stroke(stroke)
+        plot_attention(phis)
+    else:
+        print('no such task!')

@@ -54,7 +54,7 @@ def save_checkpoint(epoch,
         torch.save(checkpoint, os.path.join(directory, filename))
 
 
-def attention_plot(phis):
+def plot_attention(phis):
     plt.rcParams["figure.figsize"] = (12, 6)
     phis = phis / (np.sum(phis, axis=0, keepdims=True))
     plt.xlabel('time')
