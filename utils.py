@@ -1,8 +1,9 @@
+import sys
+import logging
 import os
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-
 
 def calc_gaussian_mixture(tanh_layer, params, bias=0.):
     # mixture of guassian computation, in the paper, fomular(15) ~ (22)
@@ -61,6 +62,30 @@ def plot_attention(phis):
     plt.ylabel('input length')
     plt.imshow(phis, cmap='hot', interpolation='nearest', aspect='auto')
     plt.show()
+
+
+def setup_logger(name, save_dir, distributed_rank=0):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    # don't log results for the non-master process
+    if distributed_rank > 0:
+        return logger
+    ch = logging.StreamHandler(stream=sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s: %(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    if save_dir:
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        fh = logging.FileHandler(os.path.join(
+            save_dir, name + '_log.txt'), mode='w')
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    return logger
 
 
 def plot_stroke(stroke, save_name=None):

@@ -14,10 +14,7 @@ from torch.utils.data import DataLoader, RandomSampler
 from model import HandwritingPrediction, HandwritingSynthesis
 from dataset import HandwritingDataset
 from loss import neg_log_likelihood
-from utils import save_checkpoint, save_loss_figure
-from logger import setup_logger
-
-
+from utils import save_checkpoint, save_loss_figure, setup_logger
 
 
 # most of default values here are took from the paper
