@@ -47,20 +47,18 @@ def generate_unconditionally(hidden_size=400,
                              steps=700,
                              feature_dim=3,
                              random_state=700,
-                             saved_model='backup/unc_model.pt'):
+                             saved_model='pretrained/prediction_model.pt'):
     np.random.seed(random_state)
 
     # load model and trained weights
     model = HandwritingPrediction(  # 3 is the stroke feature dim
-        args.hidden_size, args.mix_components, 3)
+        hidden_size, mix_components, 3)
     model.load_state_dict(torch.load(saved_model)['model'])
-    optimizer = optim.Adam([{'params': model.parameters()}],
-                           lr=args.learning_rate)
     model.to(device)
 
     # create initial input for the model, each layer
     # need 2 init values (we have 3 layers so 6 values)
-    init_states = [torch.zeros((1, args.batch_size, args.hidden_size))] * 6
+    init_states = [torch.zeros((1, 1, hidden_size))] * 6
     init_states = [state.to(device) for state in init_states]
     h1, c1, h2, c2, h3, c3 = init_states
     prev1, prev2, prev3 = (h1, c1), (h2, c2), (h3, c3)
@@ -68,7 +66,8 @@ def generate_unconditionally(hidden_size=400,
 
     record = [np.array([0, 0, 0])]
     for i in range(steps):
-        output, prev1, prev2, prev3 = model(strk, prev1, prev2, prev3)
+        output, p = model(strk, prev1, prev2, prev3)
+        prev1, prev2, prev3 = p
         out = sample_prediction(mix_components, output)
         record.append(out)
 
@@ -77,7 +76,7 @@ def generate_unconditionally(hidden_size=400,
         strk = strk.view((1, 1, 3))
 
     res_strks = np.array(record)
-    plot_stroke(res_strks)
+    # plot_stroke(res_strks)
     return res_strks
 
 
@@ -117,7 +116,7 @@ def generate_conditionally(text,
                            bias=1.,
                            feature_dim=(3, 60),
                            random_state=700,
-                           saved_model='backup/con_model.pt'):
+                           saved_model='pretrained/synthesis_model.pt'):
     text = text + ' ' # space here means a line end indicator
     file_path = os.path.join(dir_path, 'data', 'char_to_code.pt')
     char_to_code = torch.load(file_path)
