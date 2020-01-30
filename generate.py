@@ -46,7 +46,6 @@ def sample_prediction(mix_components, params):
 def generate_unconditionally(hidden_size=400,
                              mix_components=20,
                              steps=700,
-                             feature_dim=3,
                              random_state=700,
                              saved_model='pretrained/prediction_model.pt'):
     np.random.seed(random_state)
@@ -115,7 +114,6 @@ def generate_conditionally(text,
                            mix_components=20,
                            K=10,
                            bias=1.,
-                           feature_dim=(3, 60),
                            random_state=700,
                            saved_model='pretrained/synthesis_model.pt'):
     text = text + ' ' # space here means a line end indicator
