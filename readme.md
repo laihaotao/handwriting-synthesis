@@ -22,7 +22,7 @@ the training speed.
 In order to create a same env, you can use the command:
 
 ```
-conda env create -f <environment-name>.yml
+conda env export >  <environment-name>.yml
 ```
 
 ### Mac
@@ -43,8 +43,8 @@ packages (a detail env description can be found via the file `env_ubuntu.yml`
 but it may contain some unneccessary packages for this repo):
 
 ```
-python=3.6.10
-pytorch=1.4.0=py3.6_0
+python=3.8.1
+pytorch=1.4.0=py3.8_cuda9.2.148_cudnn7.6.3_0
 ```
 
 ## Run Instruction
