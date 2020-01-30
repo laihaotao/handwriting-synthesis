@@ -1,20 +1,50 @@
-import numpy
 import os
+import numpy
 import torch
+
 from matplotlib import pyplot
 
 
-def save_checkpoint(epoch, model, validation_loss, optimizer,
+def calc_gaussian_mixture(tanh_layer, params, bias=0.):
+    # mixture of guassian computation, in the paper, fomular(15) ~ (22)
+    mdn_params = params.narrow(-1, 0, params.size()[-1] - 1)
+    pi_hat, mu1, mu2, sigma1_hat, sigma2_hat, rho_hat \
+        = mdn_params.chunk(6, dim=-1)
+    end = torch.sigmoid(params.narrow(-1, params.size()[-1] - 1, 1))
+    rho = tanh_layer(rho_hat)
+    weights = torch.softmax(pi_hat * (1 + bias), dim=-1) # no bias during training
+    # sigma1, sigma2 = torch.exp(sigma1_hat), torch.exp(sigma2_hat)
+
+    # adaptive to formula (21) to (61) and (62)
+    sigma1, sigma2 = torch.exp(sigma1_hat - bias), torch.exp(sigma2_hat - bias)
+    return end, weights, mu1, mu2, sigma1, sigma2, rho
+
+
+def save_loss_figure(t_loss, v_loss):
+    f1 = plt.figure(1)
+    if t_loss:
+        plt.plot(range(1, args.num_epochs + 1),
+                t_loss,
+                color='blue',
+                linestyle='solid')
+    if v_loss:
+        plt.plot(range(1, args.num_epochs + 1),
+                v_loss,
+                color='red',
+                linestyle='solid')
+    f1.savefig(args.task + "_loss_curves", bbox_inches='tight')
+
+
+def save_checkpoint(epoch, model, v_loss, optimizer,
                     directory, filename='best.pt'):
     checkpoint = ({
         'epoch': epoch + 1,
         'model': model.state_dict(),
-        'validation_loss': validation_loss,
+        'v_loss': v_loss,
         'optimizer': optimizer.state_dict()
     })
     try:
         torch.save(checkpoint, os.path.join(directory, filename))
-
     except:
         os.mkdir(directory)
         torch.save(checkpoint, os.path.join(directory, filename))
