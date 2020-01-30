@@ -7,7 +7,7 @@ published by Alex Graves.
 
 ## Environment
 
-The code base has been tested to run on a Mac (10.14.6) or a
+The codebase has been tested to run on a Mac (10.14.6) or a
 Ubutun machine (18.06) successfully. It is recommended to run
 on a machine with GPU and cuda installed since it can boost
 the training speed.
@@ -46,7 +46,7 @@ To train the model, run `train.py` file. It supports the following
 arguments to control the training process. By default, it is set to
 train the prediction network.
 
-```shell
+```
 python train.py -h
 
 usage: train.py [-h] [--task TASK] [--num_epochs NUM_EPOCHS]
@@ -66,7 +66,7 @@ optional arguments:
   --timesteps TIMESTEPS
                         step in time direction for LSTM
   --hidden_size HIDDEN_SIZE
-                        number of hiddent state for a LSTM cell
+                        number of hidden size for a LSTM cell
   --mix_components MIX_COMPONENTS
                         number of mixture distribution
   --K K                 number of gaussian functions for attention

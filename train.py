@@ -33,7 +33,7 @@ parser.add_argument('--learning_rate', type=float, default=8E-4,
 parser.add_argument('--timesteps', type=int, default=800,
                     help='step in time direction for LSTM')
 parser.add_argument('--hidden_size', type=int,default=400,
-                    help='number of hiddent state for a LSTM cell')
+                    help='number of hidden size for a LSTM cell')
 parser.add_argument('--mix_components', type=int, default=20,
                     help='number of mixture distribution')
 parser.add_argument('--K', type=int, default=10,
