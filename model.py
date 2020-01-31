@@ -79,8 +79,7 @@ class LSTM_A(nn.Module):
             # first LSTM layer
             prev = self.lstm1(input_t, prev)
             h1_t = prev[0]
-
-            nn.utils.clip_grad_value_(h1_t, 10)  # gradient clip for LSTM
+            # nn.utils.clip_grad_value_(h1_t, 10)  # gradient clip for LSTM
             h1_list.append(h1_t)
 
             # >>> attention mechanisim, formula (46) ~ (57)
@@ -94,17 +93,33 @@ class LSTM_A(nn.Module):
             u = torch.from_numpy(
                 np.array(range(self.sent_max_len + 1))
                 ).type(torch.FloatTensor).to(self.device)  # (batch, sent_len)
-
+            u = u.unsqueeze(0)
             # a, b, k for each pos of input sent and guassian functions
-            gravity = -1 * b.unsqueeze(2) * (k.unsqueeze(2).repeat(
-                1, 1, self.sent_max_len + 1) - u)**2
+            pos = k.unsqueeze(2).repeat(1, 1, self.sent_max_len + 1) - u
+            gravity = -1 * b.unsqueeze(2) * (pos**2)
             phi = (a.unsqueeze(2) * gravity.exp()).sum(dim=1) \
                 * (self.sent_max_len / sent_real_len.unsqueeze(1))
+
+            # print('k shape', k.shape)
+            # print('u shape:', u.shape)
+            # # print(u)
+            # print('pos shape:', pos.shape)
+            # # print(pos)
+            # print('gravity shape:', gravity.shape)
+            # print('phi shape:', phi.shape)
+            # exit(0)
             # >>>>
 
             # window vector for current timestep
-            w_t = torch.sum(
-                phi.narrow(-1, 0, self.sent_max_len).unsqueeze(2) *onehots, dim=1)
+            # print('phi.narrow(-1, 0, self.sent_max_len) shape:',
+            #       phi.narrow(-1, 0, self.sent_max_len).shape)
+            # print('onehots shape:', onehots.shape)
+            except_last = phi.narrow(-1, 0, self.sent_max_len).unsqueeze(2)
+            w_t = torch.sum(except_last * onehots, dim=1)
+
+            # print('w_t shape:', w_t.shape)
+            # exit(0)
+
             wt_list.append(w_t)
             # >>>
 
@@ -182,13 +197,13 @@ class HandwritingSynthesis(nn.Module):
         lstm3_input = torch.cat((strks, hid2, win_vec), dim=2)
         hid3, prev3 = self.lstm3(lstm3_input, prev3)
 
-        nn.utils.clip_grad_value_(hid2, 10)  # gradient clip for LSTM
-        nn.utils.clip_grad_value_(hid3, 10)
+        # nn.utils.clip_grad_value_(hid2, 10)  # gradient clip for LSTM
+        # nn.utils.clip_grad_value_(hid3, 10)
 
         # mixture guassian network
         lstm_output = torch.cat((hid1, hid2, hid3), dim=2)
         params = self.mdn(lstm_output)
-        nn.utils.clip_grad_value_(params, 100)  # gradient clip for output
+        # nn.utils.clip_grad_value_(params, 100)  # gradient clip for output
 
         eos, weights, mu1, mu2, sigma1, sigma2, rho = \
             calc_gaussian_mixture(self.tanh, params, bias)
