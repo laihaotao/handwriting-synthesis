@@ -53,7 +53,7 @@ def generate_unconditionally(hidden_size=400,
     # load model and trained weights
     model = HandwritingPrediction(  # 3 is the stroke feature dim
         hidden_size, mix_components, 3)
-    model.load_state_dict(torch.load(saved_model)['model'])
+    model.load_state_dict(torch.load(saved_model, map_location=device)['model'])
     model.to(device)
 
     # create initial input for the model, each layer
@@ -121,7 +121,7 @@ def generate_conditionally(text,
     char_to_code = torch.load(file_path)
     model = HandwritingSynthesis(
         device, len(text), 1, hidden_size, K, mix_components)
-    model.load_state_dict(torch.load(saved_model)['model'])
+    model.load_state_dict(torch.load(saved_model, map_location=device)['model'])
     model.to(device)
 
     # prepare init data
