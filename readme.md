@@ -106,3 +106,13 @@ optional arguments:
   --pmodel PMODEL  path to the trained prediction model
   --smodel SMODEL  path to the trained synthesis model
 ```
+
+## References
+
+- [Generating Sequences With Recurrent Neural Networks](https://arxiv.org/abs/1308.0850)
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
+- [Understanding LSTM Networks -- colah's blog](https://colah.github.io/posts/2015-08-Understanding-LSTMs/)
+- [https://github.com/wezteoh/handwriting_generation](https://github.com/wezteoh/handwriting_generation)
+- [An answer on stackexchange for attention mechanism](https://stats.stackexchange.com/a/252478)
+- [A slide by Alex Graves](https://www.cs.toronto.edu/~graves/gen_seq_rnn.pdf)
+- [https://greydanus.github.io/2016/08/21/handwriting/](https://greydanus.github.io/2016/08/21/handwriting/)
