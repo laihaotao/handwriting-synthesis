@@ -100,13 +100,13 @@ def train_unconditional_model():
             optimizer.step()
 
             if bat_idx % 10 == 0:
-                print('Train Epoch #{}: [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                logger.info('Train Epoch #{}: [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch + 1, bat_idx * args.batch_size, len(t_dataset),
                     100. * bat_idx / len(t_loader), loss.item()))
 
         avg_loss = ct_loss / (len(t_dataset) / args.batch_size)
         t_loss.append(avg_loss)
-        print('====> Epoch #{}: Average train loss: {:.4f}'
+        logger.info('====> Epoch #{}: Average train loss: {:.4f}'
               .format(epoch + 1, avg_loss))
 
         # note: disable the validation process, sicne my PC run out of memory
@@ -121,17 +121,21 @@ def train_unconditional_model():
         # target = strks.narrow(1, 1, args.timesteps)
 
         # output, _ = model(x, (h1, c1), (h2, c2), (h3, c3))
-        # validation_loss = neg_log_likelihood(output, target, strks_m)
-        # v_loss.append(validation_loss)
-        # print('====> Epoch: {} Average validation loss: {:.4f}'.format(
-        #     epoch + 1, validation_loss))
+        # val_loss = neg_log_likelihood(output, target, strks_m)
+        # v_loss.append(val_loss)
+        # logger.info('====> Epoch: {} Average validation loss: {:.4f}'.format(
+        #     epoch + 1, val_loss))
+        # if val_loss < best_val_loss:
+        #     best_val_loss = val_loss
+        #     save_checkpoint(epoch, model, val_loss, optimizer,
+        #                     args.model_dir, args.task + '_best.pt')
+        #     logger.info('best validation result updated, given by epoch:', (epoch + 1))
 
         # save the intermediate result
-        validation_loss = 1.0
         filename = args.task + '_epoch_{}.pt'.format(epoch + 1)
-        save_checkpoint(epoch, model, validation_loss,
-                        optimizer, args.model_dir, filename)
-        print('wall time: {}s'.format(time.time() - start_time))
+        save_checkpoint(epoch, model, val_loss, optimizer,
+                        args.model_dir, filename)
+        logger.info('wall time: {}s'.format(time.time() - start_time))
 
     save_loss_figure(args, t_loss, v_loss)
 
@@ -210,12 +214,14 @@ def train_conditional_model():
                         (h1, c1), (h2, c2), (h3, c2))
         val_loss = neg_log_likelihood(output, target, strks_m)
         v_loss.append(val_loss)
-        print('====> Epoch: {} Average validation loss: {:.4f}'.format(
+        logger.info('====> Epoch: {} Average validation loss: {:.4f}'.format(
             epoch + 1, val_loss))
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_checkpoint(epoch, model, val_loss, optimizer, args.model_dir, args.task + '_best.pt')
+            save_checkpoint(epoch, model, val_loss, optimizer,
+                            args.model_dir, args.task + '_best.pt')
+            logger.info('best validation result updated, given by epoch:', (epoch + 1))
 
         # save the intermediate result
         filename = args.task + '_epoch_{}.pt'.format(epoch + 1)
