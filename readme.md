@@ -22,7 +22,7 @@ the training speed.
 In order to create a same env, you can use the command:
 
 ```
-conda env export >  <environment-name>.yml
+conda env create -f <environment-name>.yml
 ```
 
 ### Mac
